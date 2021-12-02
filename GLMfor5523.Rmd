@@ -1,0 +1,122 @@
+---
+title: "GLM for 5523"
+author: "Lukas Buhler"
+date: "12/1/2021"
+output: html_document
+---
+
+Loading Data
+```{r}
+Data<-read.csv("C:\\Users\\buhl5\\Documents\\StatData.csv")
+str(Data)
+```
+We have many values read in as characters that need to be converted to factors
+for modeling
+
+Factorization
+```{r}
+names(Data)
+Data$contact<- factor(Data$contact)
+Data$Minneapolis<- factor(Data$Minneapolis)
+Data$RacialGroup<- factor(Data$RacialGroup, levels = c("White American", "Somali American", "African American"))
+Data$Type<- factor(Data$Type)
+Data$Sex<- factor(Data$Sex)
+Data$Law<- factor(Data$Law)
+Data$batch <- factor(Data$batch)
+
+levels(Data$contact)<-c("Ambiguous","Ghosted","Negative","Positive")
+```
+
+Exploring our variables
+```{r}
+with(Data,plot(factor(Data$Minneapolis),factor(Data$contact)))
+with(Data,plot(factor(Data$RacialGroup),factor(Data$contact)))
+with(Data,plot(factor(Data$Law),factor(Data$contact)))
+with(Data,plot(factor(Data$Sex),factor(Data$contact)))
+with(Data,plot(factor(Data$StayAtHome),factor(Data$contact)))
+with(Data,plot(factor(Data$Type),factor(Data$contact)))
+plot(Data$contact)
+summary(Data$contact)
+```
+
+Variable Selection
+```{r}
+nmod<- glm(Positive~1,family=binomial,data=Data)
+memod <-glm(Positive~Type+MonthlyRent+Size+RacialGroup+Sex+Minneapolis+Law+StayAtHome,family=binomial,data=Data)
+```
+
+Forward Selection
+```{r}
+library(MASS)
+stepAIC(nmod, scope = list(upper=~Type+MonthlyRent+Size+RacialGroup+Sex+Minneapolis+Law+StayAtHome, lower=~1),direction="both",trace=0,k=2,data=Data)
+```
+
+Backward Selection
+```{r}
+stepAIC(memod, scope = list(upper=~Type+MonthlyRent+Size+RacialGroup+Sex+Minneapolis+Law+StayAtHome, lower=~1),direction="both",trace=0,k=2,data=Data)
+```
+Both directions agreed that Postive~Type+MonthlyRent+Size+RacialGroup+Sex+Law is
+the best main effects model. We may want to try interactions though. As we know
+the law variable is directly related to the racial identity of applicants, so
+we will try an interaction term.
+
+```{r}
+mod1 <- glm(Positive~Type+MonthlyRent+Size+RacialGroup*Law+Sex,family=binomial,data=Data)
+summary(mod1)
+```
+The AIC did not improve with the new model so we will not replace the old model.
+
+Sex and RacialGroup interaction
+```{r}
+mod2 <- glm(Positive~Type+MonthlyRent+Size+RacialGroup*Sex+Law,family=binomial,data=Data)
+summary(mod2)
+```
+The interaction of Sex and Race does not improve the AIC score either. We will
+continue with the model chosen by stepAIC as there are no other interactions we
+could consider meaningful in an applied context.
+
+Prediction Threshold
+```{r}
+mod <- glm(Positive~Type+MonthlyRent+Size+RacialGroup+Sex+Law,family=binomial,data=Data)
+```
+
+Testing prediction based on accuracy using different thresholds
+```{r}
+out <- predict(mod,type="response") 
+summary(out) #our model is conservative in prediction never giving more than .6 for p
+threshold <- seq(0.2,0.61,0.01) #just below lowest to just above highest
+prop <- rep(0,length(threshold))
+c <- rep(0,length(threshold))
+recall <- rep(0,length(threshold))
+total <- nrow(Data)
+for (k in 1:length(threshold)) {
+  pred <- ifelse(out > threshold[k],1,0)
+  pred2 <- ifelse(out>threshold[k],3,-3)
+  tab <- table(Data$Positive-pred2)
+  val <- ifelse(pred == Data$Positive,1,0)
+  c[k] <- sum(abs(val))
+  prop[k] <- c[k]/total
+  recall[k] <- tab[4]/(tab[4]+tab[2])
+}
+prop
+recall
+```
+
+```{r}
+par(mfrow=c(1,2))
+plot(prop)
+plot(recall)
+max(recall,na.rm=TRUE)
+prop[37]
+recall[37]
+```
+The final model will use a prediction threshold of 0.56 as it produced the highest
+recall without classifying all values as positive. It also has an overall accuracy of
+0.6423 which is not great. However I feel that it is more important to get the positives
+and over predict to encourage people to apply anyways as opposed to potentially
+missing positives and having people not apply for housing they may have gotten a 
+lease on.
+
+
+
+
