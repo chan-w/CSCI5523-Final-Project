@@ -1,0 +1,175 @@
+---
+title: "RSLModels5523"
+author: "Lukas Buhler"
+date: "12/3/2021"
+output: html_document
+---
+
+```{r}
+library(ISLR)
+library(tree)
+library(MASS)
+library(caret)
+library(randomForest)
+library(gbm)
+```
+
+
+Factorization
+```{r}
+Data<-read.csv("C:\\Users\\buhl5\\Documents\\StatData.csv")
+names(Data)
+Data$contact<- factor(Data$contact)
+Data$Minneapolis<-factor(Data$Minneapolis)
+Data$RacialGroup<- factor(Data$RacialGroup, levels = c("White American", "Somali American", "African American"))
+Data$Type<- factor(Data$Type)
+Data$Sex<- factor(Data$Sex)
+Data$Law<- factor(Data$Law)
+Data$batch <- factor(Data$batch)
+Data$StayAtHome <- factor(Data$StayAtHome)
+Data$Positive <- factor(Data$Positive)
+Data$Size <- factor(Data$Size)
+levels(Data$contact)<-c("Ambiguous","Ghosted","Negative","Positive")
+```
+
+GLM
+```{r}
+set.seed(5523)
+train = sample(1:nrow(Data),1100)
+GLM <- glm(Positive~RacialGroup*Sex*Law,family=binomial,data=Data[train,])
+summary(GLM)
+out <- predict(GLM,newdata=Data[-train,],type="response")
+pred <- ifelse(out > 0.356,1,0)
+expected_value <- factor(Data[-train,]$Positive)
+predicted_value <- factor(pred)
+CM <- confusionMatrix(data=predicted_value, reference = expected_value,positive = "1")
+acc <- CM$overall[1]
+re = CM$byClass[1]
+prec = CM$byClass[5]
+F1= data.frame(Fmeasure = 2 * prec * re / (prec + re),row.names = NULL)
+acc
+re
+prec
+F1
+```
+
+
+Decision Tree
+```{r}
+set.seed(5523)
+pos <- which(Data$Positive==1)
+neg <- which(Data$Positive==0)
+posdata <- Data[pos,]
+negdata <- Data[neg,]
+samp <- c(sample(pos,550),sample(neg,550))
+traindata <- Data[samp,]
+tree.housing <- tree(Positive~RacialGroup+Sex+Law,data=Data,
+          split = "gini", control = tree.control(1100,mincut=10),subset=samp)
+summary(tree.housing)
+plot(tree.housing)
+text(tree.housing, pretty = 0)
+tree.pred = predict(tree.housing, Data[-train,], type="class")
+with(Data[-train,], table(tree.pred, Positive))
+expected_value <- factor(Data[-train,]$Positive)
+predicted_value <- factor(tree.pred)
+CM <- confusionMatrix(data=predicted_value, reference = expected_value,positive = "1")
+acc <- CM$overall[1]
+re = CM$byClass[1]
+prec = CM$byClass[5]
+F1= data.frame(FMeasure = 2 * prec * re / (prec + re),row.names = NULL)
+acc
+re
+prec
+F1
+```
+
+Pruned Tree
+```{r}
+Trees <- data.frame(Accuracy="Starts", Recall="at", Precision="depth", Fmeasure="2")
+for(i in 2:12){
+  prune.housing = prune.misclass(tree.housing, best = i)
+  #plot(prune.housing2)
+  #text(prune.housing2, pretty=0)
+  tree.pred2 = predict(prune.housing, Data[-train,], type="class")
+  #with(Data[-train,], table(tree.pred2, Positive))
+  expected_value <- factor(Data[-train,]$Positive)
+  predicted_value <- factor(tree.pred2)
+  CM <- confusionMatrix(data=predicted_value, reference = expected_value,positive = "1")
+  acc <- CM$overall[1]
+  re = CM$byClass[1]
+  prec = CM$byClass[5]
+  F1= 2*prec*re/(prec+re)
+  #data.frame(FMeasure = 2 * prec * re / (prec + re),row.names = NULL)
+  Trees = rbind(Trees,c(Accuracy=acc,Recall=re,Precision=prec,Fmeasure=F1))
+}
+Trees
+```
+
+Random Forest
+```{r}
+set.seed(5523)
+rF <- data.frame(Accuracy=0, Recall=0, Precision=0, Fmeasure=0,oob.err=0,test.err=0)
+pos <- which(Data$Positive==1)
+neg <- which(Data$Positive==0)
+posdata <- Data[pos,]
+negdata <- Data[neg,]
+samp <- c(sample(pos,997),sample(neg,997))
+traindata <- Data[samp,]
+sub <- as.numeric(Data$Positive[-samp])-1
+rf.housing <- randomForest(Positive~RacialGroup*Sex*Law,data=Data,subset=samp,ntree=350)
+oob.err = double(3)
+test.err = double(3)
+for(mtry in 1:3){
+  fit = randomForest(Positive~RacialGroup*Sex*Law,
+                     data=Data,subset=samp, mtry=mtry, ntree = 350)
+  oob.err[mtry] = fit$err.rate[350,1]
+  pred = as.numeric(predict(fit, Data[-samp,]))-1
+  test.err[mtry] = with(Data[-samp,], mean( (sub-pred)^2 ))
+  rf.pred <- predict(rf.housing,newdata = Data[-samp])
+  expected_value <- factor(Data[-samp]$Positive)
+  predicted_value <- factor(rf.pred)
+  CM <- confusionMatrix(data=predicted_value, reference = expected_value,positive = "1")
+  acc <- CM$overall[1]
+  re = CM$byClass[1]
+  prec = CM$byClass[5]
+  F1= 2*prec*re/(prec+re)
+  #data.frame(FMeasure = 2 * prec * re / (prec + re),row.names = NULL)
+  rF <- rbind(rF, c(Accuracy = acc, Recall = re, Precision = prec, Fmeasure = F1,
+                    oob.err = oob.err[mtry],test.err=test.err[mtry]))
+}
+rF
+matplot(1:mtry, cbind(test.err, oob.err), pch = 23, col = c("red", "blue"), type = "b", ylab="Mean Squared Error")
+legend("topright", legend = c("OOB", "Test"), pch = 23, col = c("red", "blue"))
+# rf.pred <- predict(rf.housing,newdata = Data[-train])
+# expected_value <- factor(Data[-train,]$fraud)
+# predicted_value <- factor(rf.pred)
+# CM <- confusionMatrix(data=predicted_value, reference = expected_value,positive = "1")
+# acc <- CM$overall[1]
+# re = CM$byClass[1]
+# prec = CM$byClass[5]
+# F1= data.frame(FMeasure = 2 * prec * re / (prec + re),row.names = NULL)
+# acc
+# re
+# prec
+# F1
+```
+
+Boosting
+```{r}
+boost.housing = gbm(as.vector(Positive)~RacialGroup*Sex*Law,data=Data[train,],
+                    distribution ="bernoulli",
+                    n.trees = 10000, shrinkage = 0.01, interaction.depth =
+                    4,verbose=FALSE)
+boost.housing
+summary(boost.housing)
+n.trees = seq(from = 100, to = 10000, by = 100)
+predmat = predict(boost.housing, newdata = Data[-train,], n.trees = n.trees)
+#dim(predmat)
+boost.err = with(Data[-train,], apply( (predmat - (as.numeric(Positive)-1))^2, 2, mean) )
+plot(n.trees, boost.err, pch = 23, ylab = "Mean Squared Error", xlab = "# Trees", main = "Boosting Test Error")
+abline(h = min(test.err), col = "red")
+```
+
+
+
+
