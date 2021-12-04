@@ -1,0 +1,150 @@
+---
+title: "Decision Tree For Housing"
+author: "Lukas Buhler"
+date: "12/2/2021"
+output: html_document
+---
+Packages
+```{r}
+library(ISLR)
+library(tree)
+library(MASS)
+library(caret)
+library(randomForest)
+library(gbm)
+```
+
+Loading Data
+```{r}
+Data<-read.csv("C:\\Users\\buhl5\\Documents\\StatData.csv")
+str(Data)
+```
+We have many values read in as characters that need to be converted to factors
+for modeling
+
+Factorization
+```{r}
+names(Data)
+Data$contact<- factor(Data$contact)
+Data$Minneapolis<-factor(Data$Minneapolis)
+Data$RacialGroup<- factor(Data$RacialGroup, levels = c("White American", "Somali American", "African American"))
+Data$Type<- factor(Data$Type)
+Data$Sex<- factor(Data$Sex)
+Data$Law<- factor(Data$Law)
+Data$batch <- factor(Data$batch)
+Data$StayAtHome <- factor(Data$StayAtHome)
+Data$Positive <- factor(Data$Positive)
+Data$Size <- factor(Data$Size)
+levels(Data$contact)<-c("Ambiguous","Ghosted","Negative","Positive")
+```
+
+
+Tree 1
+```{r}
+tree.housing <- tree(Positive~Minneapolis+RacialGroup+Type+Sex+Law+StayAtHome+
+                       Size+MonthlyRent,data=Data,split = "gini",
+                     control = tree.control(5583,mincut=100))
+summary(tree.housing)
+plot(tree.housing)
+#text(tree.housing, pretty = 0)
+```
+
+
+Tree 2 with prediction testing
+```{r}
+set.seed(5523)
+train=sample(1:nrow(Data), 1100)
+traindata <- Data[train,]
+tree.housing2 <- tree(Positive~Minneapolis+RacialGroup+Type+Sex+Law+StayAtHome+
+                       Size+MonthlyRent,data=Data,subset=train,split = "gini")
+                     #,control = tree.control(5583,mincut=100))
+summary(tree.housing2)
+plot(tree.housing2)
+#text(tree.housing2, pretty = 0)
+tree.pred = predict(tree.housing2, Data[-train,], type="class")
+with(Data[-train,], table(tree.pred, Positive))
+```
+
+Prune
+```{r}
+prune.housing2 = prune.misclass(tree.housing2, best = 12)
+plot(prune.housing2)
+text(prune.housing2, pretty=0)
+tree.pred2 = predict(prune.housing2, Data[-train,], type="class")
+with(Data[-train,], table(tree.pred2, Positive))
+```
+
+Random Forest
+```{r}
+set.seed(5523)
+train=sample(1:nrow(Data), 1100)
+sub <- as.numeric(Data$Positive[-train])-1
+rf.housing <- randomForest(Positive~Minneapolis+RacialGroup+Type+Sex+Law+StayAtHome+
+                       Size+MonthlyRent,data=Data,subset=train,ntree=350)
+oob.err = double(11)
+test.err = double(11)
+for(mtry in 1:11){
+  fit = randomForest(Positive~Minneapolis+RacialGroup+Type+Sex+Law+StayAtHome+
+                       Size+MonthlyRent,data=Data,subset=train, mtry=mtry, ntree = 350)
+  oob.err[mtry] = fit$err.rate[350,1]
+  pred = as.numeric(predict(fit, Data[-train,]))-1
+  test.err[mtry] = with(Data[-train,], mean( (sub-pred)^2 ))
+}
+oob.err
+test.err
+```
+
+Plot Error
+```{r}
+matplot(1:mtry, cbind(test.err, oob.err), pch = 23, col = c("red", "blue"), type = "b", ylab="Mean Squared Error")
+legend("topright", legend = c("OOB", "Test"), pch = 23, col = c("red", "blue"))
+```
+
+Boosting
+```{r}
+boost.housing = gbm(as.vector(Positive)~Minneapolis+RacialGroup+Type+Sex+Law+StayAtHome+
+                    Size+MonthlyRent,data=Data[train,], distribution ="bernoulli",
+                    n.trees = 10000, shrinkage = 0.01, interaction.depth =
+                    4,verbose=FALSE)
+boost.housing
+summary(boost.housing)
+```
+
+```{r}
+plot(boost.housing,i="MonthlyRent")
+plot(boost.housing,i="Type")
+plot(boost.housing,i="RacialGroup")
+```
+
+Predicting with Boost
+```{r}
+n.trees = seq(from = 100, to = 10000, by = 100)
+predmat = predict(boost.housing, newdata = Data[-train,], n.trees = n.trees)
+#dim(predmat)
+boost.err = with(Data[-train,], apply( (predmat - (as.numeric(Positive)-1))^2, 2, mean) )
+plot(n.trees, boost.err, pch = 23, ylab = "Mean Squared Error", xlab = "# Trees", main = "Boosting Test Error")
+abline(h = min(test.err), col = "red")
+```
+Test error over # of trees makes sense it would flatten over time but shouldn't it be 
+getting smaller
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
