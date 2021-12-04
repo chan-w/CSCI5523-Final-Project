@@ -121,11 +121,11 @@ oob.err = double(3)
 test.err = double(3)
 for(mtry in 1:3){
   fit = randomForest(Positive~RacialGroup*Sex*Law,
-                     data=Data,subset=samp, mtry=mtry, ntree = 350)
+                     data=Data,subset=samp, mtry=mtry, ntree = 350,type="classification")
   oob.err[mtry] = fit$err.rate[350,1]
   pred = as.numeric(predict(fit, Data[-samp,]))-1
   test.err[mtry] = with(Data[-samp,], mean( (sub-pred)^2 ))
-  rf.pred <- predict(rf.housing,newdata = Data[-samp])
+  rf.pred <- predict(fit,newdata = Data[-samp])
   expected_value <- factor(Data[-samp]$Positive)
   predicted_value <- factor(rf.pred)
   CM <- confusionMatrix(data=predicted_value, reference = expected_value,positive = "1")
